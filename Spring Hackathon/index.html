@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Building Outliner</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="sidebar">
+    <h1>Building Outliner</h1>
+    <p class="subtitle">Enter coordinates to outline nearby buildings</p>
+
+    <div class="input-group">
+      <label for="lat">Latitude</label>
+      <input type="number" id="lat" placeholder="e.g. 40.7484" step="any" />
+    </div>
+
+    <div class="input-group">
+      <label for="lng">Longitude</label>
+      <input type="number" id="lng" placeholder="e.g. -73.9967" step="any" />
+    </div>
+
+    <div class="input-group">
+      <label for="radius">Search radius (meters)</label>
+      <input type="number" id="radius" value="200" min="50" max="1000" step="50" />
+    </div>
+
+    <button id="search-btn" onclick="searchBuildings()">
+      <span id="btn-text">Outline Buildings</span>
+      <span id="btn-spinner" class="spinner hidden"></span>
+    </button>
+
+    <button id="clear-btn" onclick="clearBuildings()">Clear</button>
+    <button id="satellite-btn" onclick="toggleSatellite()">Satellite</button>
+
+    <div id="status"></div>
+
+    <div id="results" class="hidden">
+      <h3>Results</h3>
+      <p><span id="building-count">0</span> buildings found</p>
+    </div>
+
+    <div class="examples">
+      <p class="examples-label">Try an example:</p>
+      <button class="example-btn" onclick="setExample(40.7484, -73.9967)">Empire State Building, NY</button>
+      <button class="example-btn" onclick="setExample(51.5007, -0.1246)">Big Ben, London</button>
+      <button class="example-btn" onclick="setExample(48.8584, 2.2945)">Eiffel Tower, Paris</button>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

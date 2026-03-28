@@ -1,0 +1,284 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  display: flex;
+  height: 100vh;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0f1117;
+  color: #e2e8f0;
+}
+
+/* Sidebar */
+#sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: #1a1d27;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  border-right: 1px solid #2d3148;
+  z-index: 1000;
+}
+
+h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #7c83ff;
+  letter-spacing: -0.3px;
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: -8px;
+}
+
+.input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+input[type="number"] {
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+input[type="number"]:focus {
+  border-color: #7c83ff;
+}
+
+input[type="number"]::placeholder {
+  color: #4b5563;
+}
+
+/* Buttons */
+#search-btn {
+  background: #7c83ff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+#search-btn:hover {
+  background: #6366f1;
+}
+
+#search-btn:active {
+  transform: scale(0.98);
+}
+
+#search-btn:disabled {
+  background: #3d3f5c;
+  cursor: not-allowed;
+  transform: none;
+}
+
+#clear-btn {
+  background: transparent;
+  color: #6b7280;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#clear-btn:hover {
+  border-color: #6b7280;
+  color: #9ca3af;
+}
+
+#satellite-btn {
+  background: transparent;
+  color: #9ca3af;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#satellite-btn:hover {
+  border-color: #7c83ff;
+  color: #c7d2fe;
+}
+
+#satellite-btn.active {
+  background: #1e2a1e;
+  border-color: #34d399;
+  color: #34d399;
+}
+
+/* Status */
+#status {
+  font-size: 0.82rem;
+  color: #6b7280;
+  min-height: 20px;
+}
+
+#status.error {
+  color: #f87171;
+}
+
+#status.success {
+  color: #34d399;
+}
+
+/* Results */
+#results {
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+#results h3 {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+#building-count {
+  font-weight: 700;
+  color: #7c83ff;
+  font-size: 1rem;
+}
+
+/* Examples */
+.examples {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  border-top: 1px solid #2d3148;
+  padding-top: 14px;
+}
+
+.examples-label {
+  font-size: 0.75rem;
+  color: #6b7280;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.example-btn {
+  background: #0f1117;
+  color: #9ca3af;
+  border: 1px solid #2d3148;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s;
+}
+
+.example-btn:hover {
+  border-color: #7c83ff;
+  color: #c7d2fe;
+}
+
+/* Spinner */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Map */
+#map {
+  flex: 1;
+  height: 100vh;
+}
+
+/* Leaflet popup */
+.leaflet-popup-content-wrapper {
+  background: #1a1d27;
+  color: #e2e8f0;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+
+.leaflet-popup-tip {
+  background: #1a1d27;
+}
+
+.popup-title {
+  font-weight: 700;
+  color: #7c83ff;
+  margin-bottom: 4px;
+}
+
+.popup-detail {
+  font-size: 0.82rem;
+  color: #9ca3af;
+  line-height: 1.6;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  body {
+    flex-direction: column;
+  }
+  #sidebar {
+    width: 100%;
+    min-width: unset;
+    max-height: 50vh;
+    border-right: none;
+    border-bottom: 1px solid #2d3148;
+  }
+  #map {
+    height: 50vh;
+  }
+}
