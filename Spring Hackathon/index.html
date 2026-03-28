@@ -13,13 +13,31 @@
     <p class="subtitle">Enter coordinates to outline nearby buildings</p>
 
     <div class="input-group">
-      <label for="lat">Latitude</label>
-      <input type="number" id="lat" placeholder="e.g. 40.7484" step="any" />
+      <label for="coord-mode">Coordinate input mode</label>
+      <select id="coord-mode" onchange="toggleCoordMode()">
+        <option value="separate">Separate lat / lng fields</option>
+        <option value="combined">Combined (lat, lng)</option>
+      </select>
     </div>
 
-    <div class="input-group">
-      <label for="lng">Longitude</label>
-      <input type="number" id="lng" placeholder="e.g. -73.9967" step="any" />
+    <!-- Separate mode -->
+    <div id="separate-inputs">
+      <div class="input-group">
+        <label for="lat">Latitude</label>
+        <input type="number" id="lat" placeholder="e.g. 40.7484" step="any" />
+      </div>
+      <div class="input-group" style="margin-top:10px">
+        <label for="lng">Longitude</label>
+        <input type="number" id="lng" placeholder="e.g. -73.9967" step="any" />
+      </div>
+    </div>
+
+    <!-- Combined mode -->
+    <div id="combined-input" class="hidden">
+      <div class="input-group">
+        <label for="combined-coords">Coordinates (lat, lng)</label>
+        <input type="text" id="combined-coords" placeholder="e.g. 40.7484, -73.9967" />
+      </div>
     </div>
 
     <div class="input-group">
@@ -27,11 +45,20 @@
       <input type="number" id="radius" value="200" min="50" max="1000" step="50" />
     </div>
 
+    <div class="input-group">
+      <label for="highlight-mode">Highlight mode</label>
+      <select id="highlight-mode" onchange="applyHighlightMode()">
+        <option value="all">All buildings</option>
+        <option value="one">One building (click to select)</option>
+      </select>
+    </div>
+
     <button id="search-btn" onclick="searchBuildings()">
       <span id="btn-text">Outline Buildings</span>
       <span id="btn-spinner" class="spinner hidden"></span>
     </button>
 
+    <button id="cancel-btn" class="hidden" onclick="cancelSearch()">Cancel</button>
     <button id="clear-btn" onclick="clearBuildings()">Clear</button>
     <button id="satellite-btn" onclick="toggleSatellite()">Satellite</button>
 
@@ -42,10 +69,25 @@
       <p><span id="building-count">0</span> buildings found</p>
     </div>
 
-    
+    <div class="examples">
+      <span class="examples-label">Sample Locations</span>
+      <button class="example-btn" onclick="setExample(40.7484, -73.9967)">Downtown New York</button>
+      <button class="example-btn" onclick="setExample(51.5074, -0.1278)">Central London</button>
+      <button class="example-btn" onclick="setExample(48.8584, 2.2945)">Paris (Eiffel Tower)</button>
+      <button class="example-btn" onclick="setExample(35.6762, 139.6503)">Tokyo</button>
+      <button class="example-btn" onclick="setExample(45.5513275220523, -94.15084033986767)">US</button>
+    </div>
   </div>
 
-  <div id="map"></div>
+  <div id="map">
+    <div id="map-overlay">
+      <div id="ping-indicator">
+        <span id="ping-dot"></span>
+        <span id="ping-label">Connecting…</span>
+      </div>
+      <div id="local-time"></div>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="app.js"></script>

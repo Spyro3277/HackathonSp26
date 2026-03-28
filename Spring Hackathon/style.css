@@ -53,7 +53,8 @@ label {
   letter-spacing: 0.5px;
 }
 
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   background: #0f1117;
   border: 1px solid #2d3148;
   border-radius: 8px;
@@ -65,12 +66,35 @@ input[type="number"] {
   width: 100%;
 }
 
-input[type="number"]:focus {
+input[type="number"]:focus,
+input[type="text"]:focus {
   border-color: #7c83ff;
 }
 
-input[type="number"]::placeholder {
+input[type="number"]::placeholder,
+input[type="text"]::placeholder {
   color: #4b5563;
+}
+
+select {
+  background: #0f1117;
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #e2e8f0;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+select:focus {
+  border-color: #7c83ff;
 }
 
 /* Buttons */
@@ -103,6 +127,21 @@ input[type="number"]::placeholder {
   background: #3d3f5c;
   cursor: not-allowed;
   transform: none;
+}
+
+#cancel-btn {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid #f87171;
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+#cancel-btn:hover {
+  background: rgba(248, 113, 113, 0.1);
 }
 
 #clear-btn {
@@ -264,6 +303,67 @@ input[type="number"]::placeholder {
   font-size: 0.82rem;
   color: #9ca3af;
   line-height: 1.6;
+}
+
+/* Map overlay (ping + clock) */
+#map-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+#ping-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(15, 17, 23, 0.82);
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9ca3af;
+  backdrop-filter: blur(4px);
+}
+
+#ping-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #6b7280;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+#ping-dot.pinging {
+  background: #f59e0b;
+  animation: pulse 0.6s ease-in-out infinite alternate;
+}
+#ping-dot.good   { background: #34d399; }
+#ping-dot.medium { background: #f59e0b; }
+#ping-dot.bad    { background: #f87171; }
+
+@keyframes pulse {
+  from { opacity: 1; }
+  to   { opacity: 0.3; }
+}
+
+#local-time {
+  background: rgba(15, 17, 23, 0.82);
+  border: 1px solid #2d3148;
+  border-radius: 8px;
+  padding: 6px 11px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #9ca3af;
+  backdrop-filter: blur(4px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.3px;
 }
 
 /* Responsive */

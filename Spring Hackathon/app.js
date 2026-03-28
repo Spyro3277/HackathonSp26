@@ -2,6 +2,8 @@
 const map = L.map('map', {
   center: [40.7484, -73.9967],
   zoom: 16,
+  minZoom: 3,
+  maxZoom: 19,
   zoomControl: true,
 });
 
@@ -9,12 +11,14 @@ const map = L.map('map', {
 const darkTile = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
   subdomains: 'abcd',
-  maxZoom: 20,
+  minZoom: 3,
+  maxZoom: 19,
 });
 
 const satelliteTile = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
   attribution: '&copy; <a href="https://www.esri.com/">Esri</a> &mdash; Source: Esri, USGS, NOAA',
-  maxZoom: 20,
+  minZoom: 3,
+  maxZoom: 19,
 });
 
 let isSatellite = false;
@@ -43,6 +47,57 @@ let searchCircle = null;
 
 // Storage: OSM ID -> { coords, tags, osmId }
 const storedBuildings = new Map();
+
+// ── Overpass fetch with fallback mirrors ──────────────────────────────────────
+
+const OVERPASS_ENDPOINTS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+];
+
+// Active search controller — lets cancelSearch() abort in-flight requests
+let searchAbortController = null;
+
+/**
+ * Race all Overpass mirrors in parallel; return the first successful JSON response.
+ * Passes the caller's AbortSignal so cancel propagates to every in-flight request.
+ */
+async function overpassFetch(query, callerSignal, timeoutMs = 25000) {
+  const controllers = OVERPASS_ENDPOINTS.map(() => new AbortController());
+
+  const abortAll = () => controllers.forEach(c => c.abort());
+
+  // Propagate caller cancel to every in-flight request
+  if (callerSignal) {
+    callerSignal.addEventListener('abort', abortAll, { once: true });
+  }
+
+  const racePromises = OVERPASS_ENDPOINTS.map((endpoint, i) => {
+    const timer = setTimeout(() => controllers[i].abort(), timeoutMs);
+    return fetch(endpoint, {
+      method: 'POST',
+      body: `data=${encodeURIComponent(query)}`,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: controllers[i].signal,
+    }).then(r => {
+      clearTimeout(timer);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    }).then(data => {
+      // Cancel all other in-flight requests as soon as one returns data —
+      // prevents ghost connections from piling up across consecutive searches
+      abortAll();
+      return data;
+    }).catch(err => {
+      clearTimeout(timer);
+      throw err;
+    });
+  });
+
+  // First mirror to return valid data wins
+  return Promise.any(racePromises);
+}
 
 /**
  * Capture a satellite image clipped precisely to a single building's footprint.
@@ -238,9 +293,11 @@ function setLoading(loading) {
   const btn = document.getElementById('search-btn');
   const text = document.getElementById('btn-text');
   const spinner = document.getElementById('btn-spinner');
+  const cancelBtn = document.getElementById('cancel-btn');
   btn.disabled = loading;
   text.textContent = loading ? 'Searching...' : 'Outline Buildings';
   spinner.classList.toggle('hidden', !loading);
+  cancelBtn.classList.toggle('hidden', !loading);
 }
 
 function showResults(count) {
@@ -252,6 +309,7 @@ function showResults(count) {
 function clearBuildings() {
   buildingLayers.forEach(layer => map.removeLayer(layer));
   buildingLayers = [];
+  selectedLayer = null;
   storedBuildings.clear();
   if (searchMarker) { map.removeLayer(searchMarker); searchMarker = null; }
   if (searchCircle) { map.removeLayer(searchCircle); searchCircle = null; }
@@ -263,17 +321,86 @@ function clearBuildings() {
 function setExample(lat, lng) {
   document.getElementById('lat').value = lat;
   document.getElementById('lng').value = lng;
+  document.getElementById('combined-coords').value = `${lat}, ${lng}`;
+}
+
+// ── Coordinate input mode toggle ─────────────────────────────────────────────
+
+function toggleCoordMode() {
+  const mode = document.getElementById('coord-mode').value;
+  document.getElementById('separate-inputs').classList.toggle('hidden', mode === 'combined');
+  document.getElementById('combined-input').classList.toggle('hidden', mode === 'separate');
+}
+
+/** Parse lat/lng from whichever input mode is active. Returns { lat, lng } or null. */
+function parseCoords() {
+  const mode = document.getElementById('coord-mode').value;
+  if (mode === 'combined') {
+    const raw = document.getElementById('combined-coords').value.trim();
+    const parts = raw.split(/[\s,]+/);
+    if (parts.length < 2) return null;
+    const lat = parseFloat(parts[0]);
+    const lng = parseFloat(parts[1]);
+    return isNaN(lat) || isNaN(lng) ? null : { lat, lng };
+  }
+  const lat = parseFloat(document.getElementById('lat').value);
+  const lng = parseFloat(document.getElementById('lng').value);
+  return isNaN(lat) || isNaN(lng) ? null : { lat, lng };
+}
+
+// ── Highlight mode ────────────────────────────────────────────────────────────
+
+let selectedLayer = null;
+
+const highlightedStyle = {
+  color: '#f59e0b',
+  weight: 3,
+  opacity: 1,
+  fillColor: '#f59e0b',
+  fillOpacity: 0.35,
+};
+
+const dimmedStyle = {
+  color: '#7c83ff',
+  weight: 1.5,
+  opacity: 0.35,
+  fillColor: '#7c83ff',
+  fillOpacity: 0.05,
+};
+
+function applyHighlightMode() {
+  const mode = document.getElementById('highlight-mode').value;
+  if (mode === 'all') {
+    // Reset all layers to normal style, clear selection
+    selectedLayer = null;
+    buildingLayers.forEach(l => l.setStyle(buildingStyle));
+  } else {
+    // Dim all; wait for user click
+    buildingLayers.forEach(l => l.setStyle(dimmedStyle));
+  }
+}
+
+function handleBuildingClick(layer) {
+  const mode = document.getElementById('highlight-mode').value;
+  if (mode !== 'one') return;
+
+  if (selectedLayer && selectedLayer !== layer) {
+    selectedLayer.setStyle(dimmedStyle);
+  }
+  selectedLayer = layer;
+  layer.setStyle(highlightedStyle);
+  layer.bringToFront();
 }
 
 async function searchBuildings() {
-  const lat = parseFloat(document.getElementById('lat').value);
-  const lng = parseFloat(document.getElementById('lng').value);
-  const radius = parseInt(document.getElementById('radius').value) || 200;
-
-  if (isNaN(lat) || isNaN(lng)) {
+  const coords = parseCoords();
+  if (!coords) {
     setStatus('Please enter valid latitude and longitude.', 'error');
     return;
   }
+  const { lat, lng } = coords;
+  const radius = parseInt(document.getElementById('radius').value) || 200;
+
   if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     setStatus('Coordinates out of range.', 'error');
     return;
@@ -303,9 +430,15 @@ async function searchBuildings() {
     dashArray: '5,5',
   }).addTo(map);
 
-  // Overpass API query — fetch all building ways within radius
+  const highlightMode = document.getElementById('highlight-mode').value;
+
+  // Create a controller for this search so cancel works
+  searchAbortController = new AbortController();
+  const signal = searchAbortController.signal;
+
+  // Both modes use the same query — "one" mode just highlights the closest result
   const query = `
-    [out:json][timeout:25];
+    [out:json][timeout:30];
     (
       way["building"](around:${radius},${lat},${lng});
       relation["building"](around:${radius},${lat},${lng});
@@ -315,19 +448,9 @@ async function searchBuildings() {
     out skel qt;
   `;
 
-  const overpassUrl = 'https://overpass-api.de/api/interpreter';
-
   try {
-    const response = await fetch(overpassUrl, {
-      method: 'POST',
-      body: `data=${encodeURIComponent(query)}`,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    });
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const data = await response.json();
-    const count = renderBuildings(data);
+    const data = await overpassFetch(query, signal, 25000);
+    const count = renderBuildings(data, highlightMode, lat, lng);
 
     if (count === 0) {
       setStatus('No buildings found at this location. Try increasing the radius.', '');
@@ -336,29 +459,48 @@ async function searchBuildings() {
     }
     showResults(count);
   } catch (err) {
-    console.error(err);
-    setStatus('Failed to fetch building data. Check your connection and try again.', 'error');
+    if (err.name === 'AbortError' || (err instanceof AggregateError && err.errors.every(e => e.name === 'AbortError'))) {
+      setStatus('Search cancelled.', '');
+    } else {
+      console.error(err);
+      setStatus('Failed to fetch building data. Check your connection and try again.', 'error');
+    }
   } finally {
+    searchAbortController = null;
     setLoading(false);
   }
 }
 
-function renderBuildings(data) {
-  // Build a node lookup: id -> [lat, lng]
+function cancelSearch() {
+  if (searchAbortController) {
+    searchAbortController.abort();
+  }
+}
+
+function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLng = null) {
+  // Build a node lookup for the out body / out skel format
   const nodes = {};
   data.elements.forEach(el => {
-    if (el.type === 'node') {
-      nodes[el.id] = [el.lat, el.lon];
-    }
+    if (el.type === 'node') nodes[el.id] = [el.lat, el.lon];
   });
 
   let count = 0;
+  let closestLayer = null;
+  let closestDist = Infinity;
 
-  data.elements.forEach(el => {
-    if (el.type !== 'way' || !el.nodes) return;
+  for (const el of data.elements) {
+    if (el.type !== 'way') continue;
 
-    const coords = el.nodes.map(id => nodes[id]).filter(Boolean);
-    if (coords.length < 3) return;
+    let coords;
+    if (el.geometry && el.geometry.length) {
+      coords = el.geometry.map(p => [p.lat, p.lon]);
+    } else if (el.nodes) {
+      coords = el.nodes.map(id => nodes[id]).filter(Boolean);
+    } else {
+      continue;
+    }
+
+    if (coords.length < 3) continue;
 
     const polygon = L.polygon(coords, buildingStyle).addTo(map);
 
@@ -385,17 +527,44 @@ function renderBuildings(data) {
 
     polygon.bindPopup(popupHtml);
 
+    polygon.on('click', function () {
+      handleBuildingClick(this);
+    });
+
     polygon.on('mouseover', function () {
+      const mode = document.getElementById('highlight-mode').value;
+      if (mode === 'one' && this === selectedLayer) return; // keep highlight
       this.setStyle(buildingHoverStyle);
       this.bringToFront();
     });
     polygon.on('mouseout', function () {
-      this.setStyle(buildingStyle);
+      const mode = document.getElementById('highlight-mode').value;
+      if (mode === 'one' && this === selectedLayer) return; // keep highlight
+      if (mode === 'one') {
+        this.setStyle(dimmedStyle);
+      } else {
+        this.setStyle(buildingStyle);
+      }
     });
+
+    // Track closest building to the search point for "one" mode
+    if (highlightMode === 'one' && searchLat !== null && searchLng !== null) {
+      const centroid = coords.reduce(
+        (acc, c) => [acc[0] + c[0], acc[1] + c[1]],
+        [0, 0]
+      ).map(v => v / coords.length);
+      const dLat = centroid[0] - searchLat;
+      const dLng = centroid[1] - searchLng;
+      const dist = dLat * dLat + dLng * dLng;
+      if (dist < closestDist) {
+        closestDist = dist;
+        closestLayer = polygon;
+      }
+    }
 
     buildingLayers.push(polygon);
     count++;
-  });
+  }
 
   // Fit map to show all buildings
   if (buildingLayers.length > 0) {
@@ -403,14 +572,55 @@ function renderBuildings(data) {
     map.fitBounds(group.getBounds().pad(0.15));
   }
 
+  if (highlightMode === 'one' && closestLayer) {
+    // Dim everything, then highlight just the closest building
+    buildingLayers.forEach(l => l.setStyle(dimmedStyle));
+    closestLayer.setStyle(highlightedStyle);
+    closestLayer.bringToFront();
+    selectedLayer = closestLayer;
+  } else {
+    applyHighlightMode();
+  }
+
   return count;
 }
 
 // Allow pressing Enter in inputs to trigger search
 document.addEventListener('DOMContentLoaded', () => {
-  ['lat', 'lng', 'radius'].forEach(id => {
+  ['lat', 'lng', 'radius', 'combined-coords'].forEach(id => {
     document.getElementById(id).addEventListener('keydown', e => {
       if (e.key === 'Enter') searchBuildings();
     });
   });
+
+  // ── Local clock ──────────────────────────────────────────────────────────
+  function updateClock() {
+    const now = new Date();
+    document.getElementById('local-time').textContent = now.toLocaleTimeString([], {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ── Ping indicator ───────────────────────────────────────────────────────
+  const pingDot   = document.getElementById('ping-dot');
+  const pingLabel = document.getElementById('ping-label');
+
+  async function runPing() {
+    pingDot.className = 'pinging';
+    const t0 = performance.now();
+    try {
+      await fetch('https://overpass-api.de/api/status', { method: 'HEAD', cache: 'no-store' });
+      const ms = Math.round(performance.now() - t0);
+      pingDot.className = ms < 300 ? 'good' : ms < 700 ? 'medium' : 'bad';
+      pingLabel.textContent = `${ms} ms`;
+    } catch {
+      pingDot.className = 'bad';
+      pingLabel.textContent = 'Offline';
+    }
+  }
+
+  runPing();
+  setInterval(runPing, 1000);
 });
