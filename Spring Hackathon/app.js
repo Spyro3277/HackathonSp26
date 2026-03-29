@@ -1,7 +1,8 @@
 // ── Single source of truth for zoom ──────────────────────────────────────────
 // Every tile fetch in this program — the map layer AND captureBuilding —
 // uses this constant so imagery is always consistent.
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
+
+const MAPBOX_TOKEN = window.APP_CONFIG?.mapboxToken ?? '';
 const CAPTURE_ZOOM = 20; // z19 = highest detail Mapbox satellite offers (~30cm/px)
 
 
