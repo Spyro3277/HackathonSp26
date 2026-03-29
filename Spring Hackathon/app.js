@@ -1,9 +1,8 @@
 // ── Single source of truth for zoom ──────────────────────────────────────────
 // Every tile fetch in this program — the map layer AND captureBuilding —
 // uses this constant so imagery is always consistent.
-require('dotenv').config();
-const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww'
-const CAPTURE_ZOOM = 19; // z19 = highest detail Mapbox satellite offers (~30cm/px)
+const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
+const CAPTURE_ZOOM = 20; // z19 = highest detail Mapbox satellite offers (~30cm/px)
 
 
 
@@ -71,11 +70,36 @@ const storedBuildings = new Map();
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
 ];
 
 // Active search controller — lets cancelSearch() abort in-flight requests
 let searchAbortController = null;
+
+// ── Output log ────────────────────────────────────────────────────────────────
+
+function log(msg, type = 'info') {
+  const out = document.getElementById('log-output');
+  if (!out) return;
+  const ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const line = document.createElement('div');
+  line.className = `log-line log-${type}`;
+  line.textContent = `[${ts}] ${msg}`;
+  out.appendChild(line);
+  out.scrollTop = out.scrollHeight;
+}
+
+function clearLog() {
+  const out = document.getElementById('log-output');
+  if (out) out.innerHTML = '';
+}
+
+function toggleLog() {
+  const panel = document.getElementById('log-panel');
+  const icon  = document.getElementById('log-toggle-icon');
+  const open  = panel.classList.toggle('hidden');
+  icon.textContent = open ? '▶' : '▼';
+}
 
 /**
  * Race all Overpass mirrors in parallel; return the first successful JSON response.
@@ -86,13 +110,19 @@ async function overpassFetch(query, callerSignal, timeoutMs = 25000) {
 
   const abortAll = () => controllers.forEach(c => c.abort());
 
-  // Propagate caller cancel to every in-flight request
   if (callerSignal) {
     callerSignal.addEventListener('abort', abortAll, { once: true });
   }
 
   const racePromises = OVERPASS_ENDPOINTS.map((endpoint, i) => {
-    const timer = setTimeout(() => controllers[i].abort(), timeoutMs);
+    const host = new URL(endpoint).hostname;
+    const t0 = performance.now();
+    log(`Trying ${host}…`);
+    const timer = setTimeout(() => {
+      log(`Timeout after ${timeoutMs}ms — ${host}`, 'warn');
+      controllers[i].abort();
+    }, timeoutMs);
+
     return fetch(endpoint, {
       method: 'POST',
       body: `data=${encodeURIComponent(query)}`,
@@ -103,17 +133,19 @@ async function overpassFetch(query, callerSignal, timeoutMs = 25000) {
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       return r.json();
     }).then(data => {
-      // Cancel all other in-flight requests as soon as one returns data —
-      // prevents ghost connections from piling up across consecutive searches
+      const ms = Math.round(performance.now() - t0);
+      log(`✓ ${host} responded in ${ms}ms (${data.elements?.length ?? 0} elements)`, 'success');
       abortAll();
       return data;
     }).catch(err => {
       clearTimeout(timer);
+      if (err.name !== 'AbortError') {
+        log(`✗ ${host}: ${err.message}`, 'error');
+      }
       throw err;
     });
   });
 
-  // First mirror to return valid data wins
   return Promise.any(racePromises);
 }
 
@@ -368,7 +400,16 @@ function handleBuildingClick(layer) {
   selectedLayer = layer;
   layer.setStyle(highlightedStyle);
   layer.bringToFront();
+
+  // Find the OSM ID for this layer so we can pull its tags
+  let osmId = null;
+  for (const [id, building] of storedBuildings) {
+    if (building._layer === layer) { osmId = id; break; }
+  }
+  showHvacPanel(osmId);
 }
+
+// TODO: calculateHvac(osmId) — connect to ML model
 
 async function searchBuildings() {
   const coords = parseCoords();
@@ -387,6 +428,8 @@ async function searchBuildings() {
   clearBuildings();
   setLoading(true);
   setStatus('Querying building data...');
+  log(`── Search started ──────────────────`);
+  log(`Coords: ${lat.toFixed(6)}, ${lng.toFixed(6)}  radius: ${radius}m  mode: ${document.getElementById('highlight-mode').value}`);
 
   // Pan map to coordinates
   map.setView([lat, lng], 17);
@@ -431,21 +474,29 @@ async function searchBuildings() {
     const count = renderBuildings(data, highlightMode, lat, lng);
 
     if (count === 0) {
+      log('No buildings found within radius.', 'warn');
       setStatus('No buildings found at this location. Try increasing the radius.', '');
     } else {
+      log(`Rendered ${count} building${count !== 1 ? 's' : ''}.`, 'success');
       setStatus(`Found ${count} building${count !== 1 ? 's' : ''}.`, 'success');
     }
     showResults(count);
   } catch (err) {
     if (err.name === 'AbortError' || (err instanceof AggregateError && err.errors.every(e => e.name === 'AbortError'))) {
+      log('Search cancelled by user.', 'warn');
       setStatus('Search cancelled.', '');
     } else {
+      const detail = err instanceof AggregateError
+        ? err.errors.map(e => e.message).join(' | ')
+        : err.message;
+      log(`All mirrors failed: ${detail}`, 'error');
       console.error(err);
       setStatus('Failed to fetch building data. Check your connection and try again.', 'error');
     }
   } finally {
     searchAbortController = null;
     setLoading(false);
+    log(`── Search complete ─────────────────`);
   }
 }
 
@@ -489,8 +540,8 @@ function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLn
     const use = tags.building !== 'yes' ? tags.building : '';
     const addr = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ');
 
-    // Store building data keyed by OSM ID
-    storedBuildings.set(el.id, { coords, tags, osmId: el.id });
+    // Store building data keyed by OSM ID (include layer ref for click → panel lookup)
+    storedBuildings.set(el.id, { coords, tags, osmId: el.id, _layer: polygon });
 
     const details = [use, levels, addr].filter(Boolean).join(' &bull; ');
     const popupHtml = `
@@ -501,6 +552,19 @@ function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLn
         onclick="this.textContent='Fetching…';this.disabled=true;captureBuilding(${el.id}).finally(()=>{this.textContent='⬇ Save as PNG';this.disabled=false;})"
         style="margin-top:8px;padding:4px 10px;background:#7c83ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;"
       >⬇ Save as PNG</button>
+
+      <div class="popup-hvac">
+        <div class="popup-hvac-row">
+          <button class="popup-hvac-btn"
+            onclick="this.textContent='Calculating…';this.disabled=true;">
+            Calculate HVAC Amount
+          </button>
+          <div class="popup-hvac-img-wrap">
+            <img class="popup-hvac-img" src="hvac-placeholder.svg" alt="HVAC output placeholder" />
+            <span class="popup-hvac-img-label">Output Preview</span>
+          </div>
+        </div>
+      </div>
     `;
 
     polygon.bindPopup(popupHtml);
