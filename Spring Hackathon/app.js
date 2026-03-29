@@ -1,8 +1,8 @@
 // ── Single source of truth for zoom ──────────────────────────────────────────
 // Every tile fetch in this program — the map layer AND captureBuilding —
 // uses this constant so imagery is always consistent.
-// const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
-const CAPTURE_ZOOM = 20; // z19 = highest detail Mapbox satellite offers (~30cm/px)
+const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
+const CAPTURE_ZOOM = 19; // z19 = highest detail Mapbox satellite offers (~30cm/px)
 
 // Map setup
 const map = L.map('map', {
@@ -117,10 +117,8 @@ async function overpassFetch(query, callerSignal, timeoutMs = 25000) {
 /**
  * For each Mapbox satellite tile that intersects the building's footprint at
  * CAPTURE_ZOOM, emit a separate PNG — 512×512px, clipped to the polygon.
- *
- * This gives the maximum zoom level (z19 ≈ 30cm/px) for every output image.
- * A building spanning N tiles produces N downloads, each a full-resolution tile
- * with only the building pixels visible (transparent outside the footprint).
+ * Then stitch all tiles into one final high-resolution image, clipped and
+ * cropped tightly to the footprint, and download that too.
  */
 async function captureBuilding(osmId) {
   const building = storedBuildings.get(osmId);
@@ -141,18 +139,14 @@ async function captureBuilding(osmId) {
     return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * N);
   }
 
-  /**
-   * Convert [lat, lng] → pixel coords within a specific tile's 512×512 canvas.
-   * tx, ty are the tile column/row of that tile.
-   */
-  function toTilePx([lat, lng], tx, ty) {
+  /** [lat, lng] → pixel coords within the full stitched canvas */
+  function toStitchPx([lat, lng]) {
     const worldX = (lng + 180) / 360 * N * GRID_PX;
     const r      = lat * Math.PI / 180;
     const worldY = (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * N * GRID_PX;
-    // Subtract the tile's NW world-pixel origin, then scale ×2 for @2x
     return [
-      (worldX - tx * GRID_PX) * 2,
-      (worldY - ty * GRID_PX) * 2,
+      (worldX - txMin * GRID_PX) * 2,
+      (worldY - tyMin * GRID_PX) * 2,
     ];
   }
 
@@ -162,79 +156,91 @@ async function captureBuilding(osmId) {
   const lngs = building.coords.map(c => c[1]);
   const txMin = tileCol(Math.min(...lngs));
   const txMax = tileCol(Math.max(...lngs));
-  const tyMin = tileRow(Math.max(...lats));   // maxLat → smallest row index (NW)
+  const tyMin = tileRow(Math.max(...lats));
   const tyMax = tileRow(Math.min(...lats));
 
-  const totalTiles = (txMax - txMin + 1) * (tyMax - tyMin + 1);
+  const cols = txMax - txMin + 1;
+  const rows = tyMax - tyMin + 1;
 
-  // ── Fetch all tiles in parallel, then emit one PNG per tile ──────────────
+  // ── Fetch all tiles in parallel ───────────────────────────────────────────
 
-  // Pre-load all tile images so we can reuse them across the per-tile canvases
-  const tileImages = new Map(); // key: `${tx},${ty}` → HTMLImageElement
+  const tileImages = new Map();
 
   await Promise.all(
-    Array.from({ length: txMax - txMin + 1 }, (_, ci) => txMin + ci).flatMap(tx =>
-      Array.from({ length: tyMax - tyMin + 1 }, (_, ri) => tyMin + ri).map(ty =>
+    Array.from({ length: cols }, (_, ci) => txMin + ci).flatMap(tx =>
+      Array.from({ length: rows }, (_, ri) => tyMin + ri).map(ty =>
         new Promise(resolve => {
           const img = new Image();
           img.crossOrigin = 'anonymous';
           img.onload  = () => { tileImages.set(`${tx},${ty}`, img); resolve(); };
-          img.onerror = () => resolve(); // missing tile → just skip
+          img.onerror = () => resolve();
           img.src = `https://api.mapbox.com/v4/mapbox.satellite/${Z}/${tx}/${ty}@2x.jpg90?access_token=${MAPBOX_TOKEN}`;
         })
       )
     )
   );
 
-  // Emit one PNG per tile, staggered slightly so the browser doesn't block
-  let tileIndex = 0;
+  // ── Download one clipped PNG per intersecting tile ─────────────────────
+
+  // (individual tile downloads removed — only the stitched image is saved)
+
+  // ── Stitch all tiles → clip → crop → download as one image ────────────
+
+  // Paint the raw satellite mosaic (unclipped)
+  const stitchW = cols * TILE_PX;
+  const stitchH = rows * TILE_PX;
+
+  const stitchCanvas = document.createElement('canvas');
+  stitchCanvas.width  = stitchW;
+  stitchCanvas.height = stitchH;
+  const stitchCtx = stitchCanvas.getContext('2d');
+
   for (let tx = txMin; tx <= txMax; tx++) {
     for (let ty = tyMin; ty <= tyMax; ty++) {
-      const tileImg = tileImages.get(`${tx},${ty}`);
-      if (!tileImg) continue; // tile failed to load — skip silently
-
-      // Project the full building polygon into this tile's pixel space
-      const polyPoints = building.coords.map(c => toTilePx(c, tx, ty));
-
-      // Quick reject: if every polygon vertex is outside this 512×512 tile,
-      // the building doesn't actually touch it — skip without emitting a file.
-      const anyInside = polyPoints.some(
-        ([px, py]) => px >= 0 && px <= TILE_PX && py >= 0 && py <= TILE_PX
-      );
-      if (!anyInside) continue;
-
-      // Draw tile, clip to polygon, export
-      const canvas = document.createElement('canvas');
-      canvas.width  = TILE_PX;
-      canvas.height = TILE_PX;
-      const ctx = canvas.getContext('2d');
-
-      // Clip path = building polygon projected into this tile
-      ctx.beginPath();
-      ctx.moveTo(polyPoints[0][0], polyPoints[0][1]);
-      for (let i = 1; i < polyPoints.length; i++) {
-        ctx.lineTo(polyPoints[i][0], polyPoints[i][1]);
-      }
-      ctx.closePath();
-      ctx.clip();
-
-      ctx.drawImage(tileImg, 0, 0);
-
-      // Stagger downloads by 80ms each so browsers don't throttle them
-      await new Promise(resolve => {
-        canvas.toBlob(blob => {
-          if (!blob) { resolve(); return; }
-          const a = document.createElement('a');
-          a.href = URL.createObjectURL(blob);
-          a.download = `building_${osmId}_z${Z}_tile_${tx}_${ty}.png`;
-          a.click();
-          setTimeout(() => { URL.revokeObjectURL(a.href); resolve(); }, 80);
-        }, 'image/png');
-      });
-
-      tileIndex++;
+      const img = tileImages.get(`${tx},${ty}`);
+      if (img) stitchCtx.drawImage(img, (tx - txMin) * TILE_PX, (ty - tyMin) * TILE_PX);
     }
   }
+
+  // Apply building polygon clip to the mosaic
+  const stitchPolyPts = building.coords.map(toStitchPx);
+
+  const clippedCanvas = document.createElement('canvas');
+  clippedCanvas.width  = stitchW;
+  clippedCanvas.height = stitchH;
+  const clippedCtx = clippedCanvas.getContext('2d');
+
+  clippedCtx.beginPath();
+  clippedCtx.moveTo(stitchPolyPts[0][0], stitchPolyPts[0][1]);
+  for (let i = 1; i < stitchPolyPts.length; i++) {
+    clippedCtx.lineTo(stitchPolyPts[i][0], stitchPolyPts[i][1]);
+  }
+  clippedCtx.closePath();
+  clippedCtx.clip();
+  clippedCtx.drawImage(stitchCanvas, 0, 0);
+
+  // Crop tightly to the polygon's pixel bounding box
+  const pxs = stitchPolyPts.map(p => p[0]);
+  const pys = stitchPolyPts.map(p => p[1]);
+  const PAD  = 24;
+  const cropX = Math.max(0, Math.floor(Math.min(...pxs)) - PAD);
+  const cropY = Math.max(0, Math.floor(Math.min(...pys)) - PAD);
+  const cropW = Math.min(stitchW - cropX, Math.ceil(Math.max(...pxs)) - cropX + PAD);
+  const cropH = Math.min(stitchH - cropY, Math.ceil(Math.max(...pys)) - cropY + PAD);
+
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width  = cropW;
+  cropCanvas.height = cropH;
+  cropCanvas.getContext('2d').drawImage(clippedCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  cropCanvas.toBlob(blob => {
+    if (!blob) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `building_${osmId}_z${Z}_stitched.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }, 'image/png');
 }
 
 // Building polygon style
