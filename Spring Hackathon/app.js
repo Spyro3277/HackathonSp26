@@ -1,7 +1,7 @@
 // ── Single source of truth for zoom ──────────────────────────────────────────
 // Every tile fetch in this program — the map layer AND captureBuilding —
 // uses this constant so imagery is always consistent.
-// const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
+const MAPBOX_TOKEN = 'pk.eyJ1Ijoic3B5cm8zMjc3IiwiYSI6ImNtbmF0M2c5NDBteXYycHByaXZ6aWd1aWsifQ.CQVZB3H72RVaYzITHLvOww';
 const CAPTURE_ZOOM = 20; // z19 = highest detail Mapbox satellite offers (~30cm/px)
 
 // Map setup
@@ -392,7 +392,16 @@ function handleBuildingClick(layer) {
   selectedLayer = layer;
   layer.setStyle(highlightedStyle);
   layer.bringToFront();
+
+  // Find the OSM ID for this layer so we can pull its tags
+  let osmId = null;
+  for (const [id, building] of storedBuildings) {
+    if (building._layer === layer) { osmId = id; break; }
+  }
+  showHvacPanel(osmId);
 }
+
+// TODO: calculateHvac(osmId) — connect to ML model
 
 async function searchBuildings() {
   const coords = parseCoords();
@@ -523,8 +532,8 @@ function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLn
     const use = tags.building !== 'yes' ? tags.building : '';
     const addr = [tags['addr:housenumber'], tags['addr:street']].filter(Boolean).join(' ');
 
-    // Store building data keyed by OSM ID
-    storedBuildings.set(el.id, { coords, tags, osmId: el.id });
+    // Store building data keyed by OSM ID (include layer ref for click → panel lookup)
+    storedBuildings.set(el.id, { coords, tags, osmId: el.id, _layer: polygon });
 
     const details = [use, levels, addr].filter(Boolean).join(' &bull; ');
     const popupHtml = `
@@ -535,6 +544,19 @@ function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLn
         onclick="this.textContent='Fetching…';this.disabled=true;captureBuilding(${el.id}).finally(()=>{this.textContent='⬇ Save as PNG';this.disabled=false;})"
         style="margin-top:8px;padding:4px 10px;background:#7c83ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;"
       >⬇ Save as PNG</button>
+
+      <div class="popup-hvac">
+        <div class="popup-hvac-row">
+          <button class="popup-hvac-btn"
+            onclick="this.textContent='Calculating…';this.disabled=true;">
+            Calculate HVAC Amount
+          </button>
+          <div class="popup-hvac-img-wrap">
+            <img class="popup-hvac-img" src="hvac-placeholder.svg" alt="HVAC output placeholder" />
+            <span class="popup-hvac-img-label">Output Preview</span>
+          </div>
+        </div>
+      </div>
     `;
 
     polygon.bindPopup(popupHtml);

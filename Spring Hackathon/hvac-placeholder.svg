@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- Background -->
+  <rect width="120" height="120" rx="8" fill="#0f1117"/>
+  <rect width="120" height="120" rx="8" fill="none" stroke="#2d3148" stroke-width="1.5"/>
+
+  <!-- Grid lines -->
+  <line x1="0" y1="40" x2="120" y2="40" stroke="#1e2235" stroke-width="0.8"/>
+  <line x1="0" y1="80" x2="120" y2="80" stroke="#1e2235" stroke-width="0.8"/>
+  <line x1="40" y1="0" x2="40" y2="120" stroke="#1e2235" stroke-width="0.8"/>
+  <line x1="80" y1="0" x2="80" y2="120" stroke="#1e2235" stroke-width="0.8"/>
+
+  <!-- HVAC unit body -->
+  <rect x="25" y="30" width="70" height="50" rx="5" fill="#1a1d27" stroke="#7c83ff" stroke-width="1.5"/>
+
+  <!-- Fan blades (circle + cross) -->
+  <circle cx="60" cy="55" r="15" fill="none" stroke="#7c83ff" stroke-width="1.2"/>
+  <line x1="60" y1="40" x2="60" y2="70" stroke="#7c83ff" stroke-width="1.2"/>
+  <line x1="45" y1="55" x2="75" y2="55" stroke="#7c83ff" stroke-width="1.2"/>
+  <circle cx="60" cy="55" r="3" fill="#7c83ff"/>
+
+  <!-- Vent lines left -->
+  <line x1="29" y1="45" x2="38" y2="45" stroke="#4b5563" stroke-width="1"/>
+  <line x1="29" y1="50" x2="38" y2="50" stroke="#4b5563" stroke-width="1"/>
+  <line x1="29" y1="55" x2="38" y2="55" stroke="#4b5563" stroke-width="1"/>
+  <line x1="29" y1="60" x2="38" y2="60" stroke="#4b5563" stroke-width="1"/>
+  <line x1="29" y1="65" x2="38" y2="65" stroke="#4b5563" stroke-width="1"/>
+
+  <!-- Vent lines right -->
+  <line x1="82" y1="45" x2="91" y2="45" stroke="#4b5563" stroke-width="1"/>
+  <line x1="82" y1="50" x2="91" y2="50" stroke="#4b5563" stroke-width="1"/>
+  <line x1="82" y1="55" x2="91" y2="55" stroke="#4b5563" stroke-width="1"/>
+  <line x1="82" y1="60" x2="91" y2="60" stroke="#4b5563" stroke-width="1"/>
+  <line x1="82" y1="65" x2="91" y2="65" stroke="#4b5563" stroke-width="1"/>
+
+  <!-- Label -->
+  <text x="60" y="100" text-anchor="middle" font-family="monospace" font-size="8" fill="#4b5563">HVAC OUTPUT</text>
+  <text x="60" y="111" text-anchor="middle" font-family="monospace" font-size="7" fill="#2d3148">[ PENDING ]</text>
+</svg>

@@ -366,6 +366,66 @@ select:focus {
   letter-spacing: 0.3px;
 }
 
+/* HVAC panel inside popup */
+.popup-hvac {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #2d3148;
+  animation: fadeSlideIn 0.25s ease both;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-5px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.popup-hvac-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popup-hvac-btn {
+  flex: 1;
+  background: linear-gradient(135deg, #7c83ff, #6366f1);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.3;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.popup-hvac-btn:hover    { opacity: 0.88; }
+.popup-hvac-btn:active   { transform: scale(0.97); }
+.popup-hvac-btn:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
+
+.popup-hvac-img-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.popup-hvac-img {
+  width: 64px;
+  height: 64px;
+  border-radius: 5px;
+  border: 1px solid #2d3148;
+  object-fit: cover;
+  background: #0a0c10;
+}
+
+.popup-hvac-img-label {
+  font-size: 0.6rem;
+  color: #4b5563;
+  font-family: 'Consolas', monospace;
+}
+
 /* Output log */
 #log-section {
   border-top: 1px solid #2d3148;

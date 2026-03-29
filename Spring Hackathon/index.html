@@ -8,6 +8,16 @@
   <title>Building Outliner</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
+  <style>
+    body { animation: appFadeIn 0.5s ease both; }
+    @keyframes appFadeIn { from { opacity: 0; } to { opacity: 1; } }
+  </style>
+  <script>
+    // Auth guard — bounce to login if session is not set
+    if (sessionStorage.getItem('auth') !== 'true') {
+      window.location.replace('login.html');
+    }
+  </script>
 </head>
 <body>
   <div id="sidebar">
