@@ -3,7 +3,11 @@
 // uses this constant so imagery is always consistent.
 
 const MAPBOX_TOKEN = window.APP_CONFIG?.mapboxToken ?? '';
-const CAPTURE_ZOOM = 20; // z19 = highest detail Mapbox satellite offers (~30cm/px)
+const CAPTURE_ZOOM = 20; // z20 = highest detail Mapbox satellite offers
+
+// ── Roboflow config ───────────────────────────────────────────────────────────
+const ROBOFLOW_API_KEY = window.APP_CONFIG?.roboflowApiKey ?? '';
+const ROBOFLOW_ENDPOINT = window.APP_CONFIG?.roboflowEndpoint ?? '';
 
 
 
@@ -151,21 +155,18 @@ async function overpassFetch(query, callerSignal, timeoutMs = 25000) {
 }
 
 /**
- * For each Mapbox satellite tile that intersects the building's footprint at
- * CAPTURE_ZOOM, emit a separate PNG — 512×512px, clipped to the polygon.
- * Then stitch all tiles into one final high-resolution image, clipped and
- * cropped tightly to the footprint, and download that too.
+ * Captures the satellite image for a building footprint.
+ * Returns { blob, base64 } so callers can download OR send to Roboflow.
+ * Pass download=true (default) to also trigger the browser Save-As dialog.
  */
-async function captureBuilding(osmId) {
+async function captureBuilding(osmId, { download = true } = {}) {
   const building = storedBuildings.get(osmId);
-  if (!building) return;
+  if (!building) return null;
 
   const Z       = CAPTURE_ZOOM;
   const N       = Math.pow(2, Z);
-  const GRID_PX = 256;   // logical tile-grid cell size used for all coordinate math
-  const TILE_PX = 512;   // @2x tile image is 512×512 rendered pixels
-
-  // ── Mercator helpers ──────────────────────────────────────────────────────
+  const GRID_PX = 256;
+  const TILE_PX = 512;
 
   function tileCol(lng) {
     return Math.floor((lng + 180) / 360 * N);
@@ -175,7 +176,6 @@ async function captureBuilding(osmId) {
     return Math.floor((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2 * N);
   }
 
-  /** [lat, lng] → pixel coords within the full stitched canvas */
   function toStitchPx([lat, lng]) {
     const worldX = (lng + 180) / 360 * N * GRID_PX;
     const r      = lat * Math.PI / 180;
@@ -186,8 +186,6 @@ async function captureBuilding(osmId) {
     ];
   }
 
-  // ── Derive tile range from footprint bounding box ─────────────────────────
-
   const lats = building.coords.map(c => c[0]);
   const lngs = building.coords.map(c => c[1]);
   const txMin = tileCol(Math.min(...lngs));
@@ -197,8 +195,6 @@ async function captureBuilding(osmId) {
 
   const cols = txMax - txMin + 1;
   const rows = tyMax - tyMin + 1;
-
-  // ── Fetch all tiles in parallel ───────────────────────────────────────────
 
   const tileImages = new Map();
 
@@ -216,13 +212,6 @@ async function captureBuilding(osmId) {
     )
   );
 
-  // ── Download one clipped PNG per intersecting tile ─────────────────────
-
-  // (individual tile downloads removed — only the stitched image is saved)
-
-  // ── Stitch all tiles → clip → crop → download as one image ────────────
-
-  // Paint the raw satellite mosaic (unclipped)
   const stitchW = cols * TILE_PX;
   const stitchH = rows * TILE_PX;
 
@@ -238,7 +227,6 @@ async function captureBuilding(osmId) {
     }
   }
 
-  // Apply building polygon clip to the mosaic
   const stitchPolyPts = building.coords.map(toStitchPx);
 
   const clippedCanvas = document.createElement('canvas');
@@ -255,7 +243,6 @@ async function captureBuilding(osmId) {
   clippedCtx.clip();
   clippedCtx.drawImage(stitchCanvas, 0, 0);
 
-  // Crop tightly to the polygon's pixel bounding box
   const pxs = stitchPolyPts.map(p => p[0]);
   const pys = stitchPolyPts.map(p => p[1]);
   const PAD  = 24;
@@ -269,14 +256,26 @@ async function captureBuilding(osmId) {
   cropCanvas.height = cropH;
   cropCanvas.getContext('2d').drawImage(clippedCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
 
-  cropCanvas.toBlob(blob => {
-    if (!blob) return;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = `building_${osmId}_z${Z}_stitched.png`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }, 'image/png');
+  return new Promise(resolve => {
+    cropCanvas.toBlob(blob => {
+      if (!blob) { resolve(null); return; }
+
+      if (download) {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `building_${osmId}_z${Z}_stitched.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result.split(',')[1];
+        resolve({ blob, base64 });
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/png');
+  });
 }
 
 // Building polygon style
@@ -402,15 +401,85 @@ function handleBuildingClick(layer) {
   layer.setStyle(highlightedStyle);
   layer.bringToFront();
 
-  // Find the OSM ID for this layer so we can pull its tags
+  // Find the OSM ID for this layer so we can open its popup
   let osmId = null;
   for (const [id, building] of storedBuildings) {
     if (building._layer === layer) { osmId = id; break; }
   }
-  showHvacPanel(osmId);
+  if (osmId !== null) layer.openPopup();
 }
 
-// TODO: calculateHvac(osmId) — connect to ML model
+// ── Roboflow: calculateHvac ───────────────────────────────────────────────────
+async function calculateHvac(osmId) {
+  const btn        = document.getElementById(`hvac-btn-${osmId}`);
+  const resultWrap = document.getElementById(`hvac-result-${osmId}`);
+  const imgEl      = document.getElementById(`hvac-img-${osmId}`);
+  const countEl    = document.getElementById(`hvac-count-${osmId}`);
+
+  if (btn) { btn.textContent = 'Capturing image\u2026'; btn.disabled = true; }
+
+  try {
+    const captured = await captureBuilding(osmId, { download: false });
+    if (!captured) throw new Error('Image capture returned nothing \u2014 building may not be stored.');
+
+    log(`Captured base64 image for OSM ${osmId} (${Math.round(captured.base64.length / 1024)} KB)`, 'info');
+    if (btn) btn.textContent = 'Running detection\u2026';
+
+    const response = await fetch(ROBOFLOW_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: ROBOFLOW_API_KEY,
+        inputs: {
+          image: { type: 'base64', value: captured.base64 },
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Roboflow HTTP ${response.status}: ${errText}`);
+    }
+
+    const result = await response.json();
+    log(`Roboflow response received for OSM ${osmId}`, 'success');
+    console.log('[Roboflow raw response]', JSON.stringify(result, null, 2));
+
+    const output = result?.outputs?.[0] ?? {};
+
+    const detectionCount =
+      output?.count ??
+      output?.count_objects ??
+      output?.object_count ??
+      output?.predictions?.predictions?.length ??
+      output?.predictions?.length ??
+      result?.count ??
+      '?';
+
+    const annotatedB64 =
+      output?.output_image?.value ??
+      output?.visualization?.value ??
+      output?.annotated_image?.value ??
+      null;
+
+    if (annotatedB64 && imgEl) {
+      imgEl.src = `data:image/jpeg;base64,${annotatedB64}`;
+      imgEl.style.display = 'block';
+    }
+
+    if (countEl) countEl.textContent = detectionCount;
+    if (resultWrap) resultWrap.style.display = 'block';
+    if (btn) btn.textContent = '\u2713 Done';
+
+  } catch (err) {
+    log(`calculateHvac error (OSM ${osmId}): ${err.message}`, 'error');
+    if (btn) { btn.textContent = '\u26A0 Error \u2014 retry?'; btn.disabled = false; }
+    if (resultWrap) {
+      resultWrap.style.display = 'block';
+      resultWrap.innerHTML = `<p style="color:#f87171;font-size:12px;">Error: ${err.message}</p>`;
+    }
+  }
+}
 
 async function searchBuildings() {
   const coords = parseCoords();
@@ -459,15 +528,16 @@ async function searchBuildings() {
   const signal = searchAbortController.signal;
 
   // Both modes use the same query — "one" mode just highlights the closest result
+  // Optimised query: `out geom` returns geometry inline so the server does ONE
+  // pass instead of the expensive `out body; >; out skel qt;` two-pass pattern.
+  // `qt` (quadtile) sort is fastest for the server to produce.
   const query = `
-    [out:json][timeout:30];
+    [out:json][timeout:25];
     (
       way["building"](around:${radius},${lat},${lng});
       relation["building"](around:${radius},${lat},${lng});
     );
-    out body;
-    >;
-    out skel qt;
+    out geom qt;
   `;
 
   try {
@@ -549,21 +619,33 @@ function renderBuildings(data, highlightMode = 'all', searchLat = null, searchLn
       <div class="popup-title">${name || 'Building'}</div>
       <div class="popup-detail">${details || 'No additional info'}</div>
       <div class="popup-detail" style="margin-top:4px;color:#4b5563">OSM ID: ${el.id}</div>
+
       <button
-        onclick="this.textContent='Fetching…';this.disabled=true;captureBuilding(${el.id}).finally(()=>{this.textContent='⬇ Save as PNG';this.disabled=false;})"
+        onclick="this.textContent='Fetching\u2026';this.disabled=true;captureBuilding(${el.id}).finally(()=>{this.textContent='\u2B07 Save as PNG';this.disabled=false;})"
         style="margin-top:8px;padding:4px 10px;background:#7c83ff;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:12px;"
-      >⬇ Save as PNG</button>
+      >\u2B07 Save as PNG</button>
 
       <div class="popup-hvac">
         <div class="popup-hvac-row">
-          <button class="popup-hvac-btn"
-            onclick="this.textContent='Calculating…';this.disabled=true;">
+          <button
+            id="hvac-btn-${el.id}"
+            class="popup-hvac-btn"
+            onclick="calculateHvac(${el.id})"
+          >
             Calculate HVAC Amount
           </button>
-          <div class="popup-hvac-img-wrap">
-            <img class="popup-hvac-img" src="hvac-placeholder.svg" alt="HVAC output placeholder" />
-            <span class="popup-hvac-img-label">Output Preview</span>
+        </div>
+
+        <div id="hvac-result-${el.id}" style="display:none;margin-top:8px;">
+          <div style="font-size:11px;color:#9ca3af;margin-bottom:4px;">
+            Detections: <strong><span id="hvac-count-${el.id}">\u2014</span></strong>
           </div>
+          <img
+            id="hvac-img-${el.id}"
+            src=""
+            alt="HVAC detection output"
+            style="display:none;width:100%;min-width:380px;max-width:480px;border-radius:4px;border:1px solid #374151;margin-top:4px;"
+          />
         </div>
       </div>
     `;
@@ -654,7 +736,8 @@ document.addEventListener('DOMContentLoaded', () => {
     pingDot.className = 'pinging';
     const t0 = performance.now();
     try {
-      await fetch('https://overpass-api.de/api/status', { method: 'HEAD', cache: 'no-store' });
+      // Use a lightweight CORS-friendly endpoint instead of Overpass HEAD (blocked by CORS)
+      await fetch('https://dns.google/resolve?name=overpass-api.de&type=A', { cache: 'no-store' });
       const ms = Math.round(performance.now() - t0);
       pingDot.className = ms < 300 ? 'good' : ms < 700 ? 'medium' : 'bad';
       pingLabel.textContent = `${ms} ms`;
@@ -665,5 +748,5 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   runPing();
-  setInterval(runPing, 1000);
+  setInterval(runPing, 30000); // every 30s — avoids hammering the network
 });

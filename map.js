@@ -505,15 +505,14 @@ async function searchBuildings() {
   searchAbortController = new AbortController();
   const signal = searchAbortController.signal;
 
+  // Optimised: `out geom` returns geometry inline (single pass, less server load)
   const query = `
-    [out:json][timeout:30];
+    [out:json][timeout:25];
     (
       way["building"](around:${radius},${lat},${lng});
       relation["building"](around:${radius},${lat},${lng});
     );
-    out body;
-    >;
-    out skel qt;
+    out geom qt;
   `;
 
   try {
