@@ -146,7 +146,8 @@ DASHBOARD_HTML = r"""
       background: #1a1d27;
       border: 1px solid #2d3148;
       border-radius: 12px;
-      overflow: hidden;
+      max-height: calc(100vh - 180px);
+      overflow: auto;
     }
 
     table {
@@ -165,7 +166,7 @@ DASHBOARD_HTML = r"""
       text-align: left;
       border-bottom: 1px solid #2d3148;
       position: sticky;
-      top: 82px;
+      top: 0;
       z-index: 10;
     }
 
