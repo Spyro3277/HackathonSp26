@@ -9,6 +9,9 @@ const CAPTURE_ZOOM = 20; // z20 = highest detail Mapbox satellite offers
 const ROBOFLOW_API_KEY = window.APP_CONFIG?.roboflowApiKey ?? '';
 const ROBOFLOW_ENDPOINT = window.APP_CONFIG?.roboflowEndpoint ?? '';
 
+// ── Backend API for persisting HVAC results ──────────────────────────────────
+const BACKEND_URL = window.APP_CONFIG?.backendUrl ?? '';
+
 
 
 // Map setup
@@ -470,6 +473,34 @@ async function calculateHvac(osmId) {
     if (countEl) countEl.textContent = detectionCount;
     if (resultWrap) resultWrap.style.display = 'block';
     if (btn) btn.textContent = '\u2713 Done';
+
+    // ── Persist result to backend ──────────────────────────────────────────
+    if (BACKEND_URL) {
+      const building = storedBuildings.get(osmId);
+      const centroid = building ? building.coords.reduce(
+        (acc, c) => [acc[0] + c[0] / building.coords.length, acc[1] + c[1] / building.coords.length],
+        [0, 0]
+      ) : [null, null];
+
+      try {
+        await fetch(`${BACKEND_URL}/api/hvac-results`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            osmId,
+            count: detectionCount,
+            image: annotatedB64 || null,
+            rawImage: captured.base64,
+            lat: centroid[0],
+            lng: centroid[1],
+            tags: building?.tags ?? {},
+          }),
+        });
+        log(`Stored HVAC result for OSM ${osmId} on backend`, 'success');
+      } catch (storeErr) {
+        log(`Backend store failed: ${storeErr.message}`, 'warn');
+      }
+    }
 
   } catch (err) {
     log(`calculateHvac error (OSM ${osmId}): ${err.message}`, 'error');
